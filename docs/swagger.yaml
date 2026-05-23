@@ -1,0 +1,228 @@
+basePath: /api/v1
+definitions:
+  github_com_checkpoint_server_internal_models.Game:
+    properties:
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      igdb_id:
+        type: integer
+      release_date:
+        type: string
+      steam_app_id:
+        description: Used to map imported games
+        type: integer
+      summary:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_checkpoint_server_internal_models.UserGame:
+    properties:
+      created_at:
+        type: string
+      game:
+        $ref: '#/definitions/github_com_checkpoint_server_internal_models.Game'
+      game_id:
+        type: string
+      last_played_at:
+        type: string
+      playtime_minutes:
+        type: integer
+      status:
+        description: playing, completed, backlog, dropped, wishlist
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  internal_handlers.LoginRequest:
+    properties:
+      steam_id:
+        type: string
+    type: object
+  internal_handlers.UpdateLibraryRequest:
+    properties:
+      igdb_id:
+        type: integer
+      status:
+        description: playing, completed, backlog, dropped, wishlist
+        type: string
+      title:
+        type: string
+    type: object
+host: localhost:3000
+info:
+  contact: {}
+  description: The Game Journal (Letterboxd for games) API
+  title: Checkpoint MVP API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user using their Steam ID and returns a JWT token
+      parameters:
+      - description: Login Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login with Steam
+      tags:
+      - auth
+  /games/search:
+    get:
+      consumes:
+      - application/json
+      description: Search for games on IGDB
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Search Games
+      tags:
+      - games
+  /library/{user_id}:
+    get:
+      consumes:
+      - application/json
+      description: Fetch all games in a user's library
+      parameters:
+      - description: User UUID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_checkpoint_server_internal_models.UserGame'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get User Library
+      tags:
+      - library
+  /library/update:
+    post:
+      consumes:
+      - application/json
+      description: Add a game to library or update its status
+      parameters:
+      - description: Update Status Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.UpdateLibraryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update Game Status
+      tags:
+      - library
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
