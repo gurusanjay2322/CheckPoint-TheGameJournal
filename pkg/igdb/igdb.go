@@ -83,3 +83,50 @@ func (c *Client) PostRequest(endpoint, query string) ([]byte, error) {
 
 	return io.ReadAll(resp.Body)
 }
+
+type IGDBGame struct {
+	ID               int    `json:"id"`
+	Name             string `json:"name"`
+	Summary          string `json:"summary"`
+	FirstReleaseDate int64  `json:"first_release_date"`
+	Cover            struct {
+		ImageID string `json:"image_id"`
+	} `json:"cover"`
+	ExternalGames []struct {
+		UID      string `json:"uid"`
+		Category int    `json:"category"`
+	} `json:"external_games"`
+}
+
+func (c *Client) GetGamesBySteamIDs(steamIDs []int) ([]IGDBGame, error) {
+	if len(steamIDs) == 0 {
+		return nil, nil
+	}
+
+	// Format steamIDs as ("id1", "id2", ...)
+	var uidStr string
+	for i, id := range steamIDs {
+		if i > 0 {
+			uidStr += ", "
+		}
+		uidStr += fmt.Sprintf(`"%d"`, id)
+	}
+
+	query := fmt.Sprintf(`
+		fields id, name, summary, first_release_date, cover.image_id, external_games.uid, external_games.category;
+		where external_games.uid = (%s);
+		limit 500;
+	`, uidStr)
+
+	data, err := c.PostRequest("games", query)
+	if err != nil {
+		return nil, err
+	}
+
+	var games []IGDBGame
+	if err := json.Unmarshal(data, &games); err != nil {
+		return nil, err
+	}
+
+	return games, nil
+}

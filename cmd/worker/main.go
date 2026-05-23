@@ -6,6 +6,7 @@ import (
 	"github.com/checkpoint/server/internal/config"
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/worker"
+	"github.com/checkpoint/server/pkg/igdb"
 	"github.com/checkpoint/server/pkg/steam"
 	"github.com/hibiken/asynq"
 )
@@ -19,6 +20,7 @@ func main() {
 
 	// Setup dependencies
 	steamClient := steam.NewClient(cfg.SteamAPIKey)
+	igdbClient := igdb.NewClient(cfg.IGDBClientID, cfg.IGDBSecret)
 
 	// Start Asynq worker server
 	redisOpt, err := asynq.ParseRedisURI(cfg.RedisURL)
@@ -36,8 +38,13 @@ func main() {
 		},
 	)
 
+	// Need an asynq client to queue follow-up tasks from within tasks
+	asynqClient := asynq.NewClient(redisOpt)
+	defer asynqClient.Close()
+
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(worker.TypeSyncSteamLibrary, worker.HandleSyncSteamLibraryTask(steamClient))
+	mux.HandleFunc(worker.TypeSyncSteamLibrary, worker.HandleSyncSteamLibraryTask(steamClient, asynqClient))
+	mux.HandleFunc(worker.TypeEnrichSteamGames, worker.HandleEnrichSteamGamesTask(igdbClient))
 
 	log.Println("Starting Asynq worker server...")
 	if err := srv.Run(mux); err != nil {

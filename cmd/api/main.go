@@ -15,7 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/swagger"
 	"github.com/hibiken/asynq"
-	
+
 	_ "github.com/checkpoint/server/docs"
 )
 
@@ -62,7 +62,7 @@ func main() {
 	// Setup dependencies
 	steamClient := steam.NewClient(cfg.SteamAPIKey)
 	igdbClient := igdb.NewClient(cfg.IGDBClientID, cfg.IGDBSecret)
-	
+
 	redisOpt, _ := asynq.ParseRedisURI(cfg.RedisURL)
 	asynqClient := asynq.NewClient(redisOpt)
 	defer asynqClient.Close()
@@ -70,10 +70,12 @@ func main() {
 	authHandler := handlers.NewAuthHandler(cfg, steamClient, asynqClient)
 	gamesHandler := handlers.NewGamesHandler(igdbClient)
 	libraryHandler := handlers.NewLibraryHandler()
+	reviewsHandler := handlers.NewReviewsHandler()
+	socialHandler := handlers.NewSocialHandler()
 
 	// Setup routes
 	api := app.Group("/api/v1")
-	
+
 	// Swagger route
 	app.Get("/swagger/*", swagger.HandlerDefault)
 
@@ -82,18 +84,29 @@ func main() {
 	})
 
 	auth := api.Group("/auth")
-	auth.Post("/login", authHandler.Login)
+	auth.Post("/signup", authHandler.Signup)
+	auth.Post("/login", authHandler.EmailLogin)
+	auth.Post("/steam", authHandler.SteamLogin)
 
 	games := api.Group("/games")
 	games.Get("/search", gamesHandler.Search)
 
 	library := api.Group("/library")
 	library.Get("/:user_id", libraryHandler.GetUserLibrary)
-	
+
+	reviews := api.Group("/reviews")
+	reviews.Get("/game/:igdb_id", reviewsHandler.GetGameReviews)
+
+	social := api.Group("/social")
+	social.Get("/profile/:user_id", socialHandler.GetProfile)
+
 	// Protected routes
-	protected := api.Group("/", middleware.Protected(cfg))
-	
-	protected.Post("/library/update", libraryHandler.UpdateStatus)
+	api.Put("/auth/email", middleware.Protected(cfg), authHandler.UpdateEmail)
+	api.Post("/auth/steam/link", middleware.Protected(cfg), authHandler.LinkSteam)
+	api.Post("/library/update", middleware.Protected(cfg), libraryHandler.UpdateStatus)
+	api.Post("/reviews", middleware.Protected(cfg), reviewsHandler.CreateReview)
+	api.Post("/social/follow", middleware.Protected(cfg), socialHandler.FollowUser)
+	api.Get("/social/feed", middleware.Protected(cfg), socialHandler.GetFeed)
 
 	// Start server
 	log.Printf("Starting server on port %s", cfg.Port)

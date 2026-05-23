@@ -1,5 +1,24 @@
 basePath: /api/v1
 definitions:
+  github_com_checkpoint_server_internal_models.Activity:
+    properties:
+      action_type:
+        description: rated, reviewed, status_change
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      target_id:
+        type: string
+      target_type:
+        description: review, user_game
+        type: string
+      user:
+        $ref: '#/definitions/github_com_checkpoint_server_internal_models.User'
+      user_id:
+        type: string
+    type: object
   github_com_checkpoint_server_internal_models.Game:
     properties:
       cover_url:
@@ -22,6 +41,49 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_checkpoint_server_internal_models.Review:
+    properties:
+      contains_spoiler:
+        type: boolean
+      content:
+        type: string
+      created_at:
+        type: string
+      game:
+        $ref: '#/definitions/github_com_checkpoint_server_internal_models.Game'
+      game_id:
+        type: string
+      id:
+        type: string
+      rating:
+        description: 1-10
+        type: integer
+      updated_at:
+        type: string
+      user:
+        $ref: '#/definitions/github_com_checkpoint_server_internal_models.User'
+      user_id:
+        type: string
+    type: object
+  github_com_checkpoint_server_internal_models.User:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      steam_id:
+        type: string
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
   github_com_checkpoint_server_internal_models.UserGame:
     properties:
       created_at:
@@ -42,9 +104,44 @@ definitions:
       user_id:
         type: string
     type: object
-  internal_handlers.LoginRequest:
+  internal_handlers.CreateReviewRequest:
+    properties:
+      contains_spoiler:
+        type: boolean
+      content:
+        type: string
+      igdb_id:
+        type: integer
+      rating:
+        description: 1-10
+        type: integer
+      title:
+        type: string
+    type: object
+  internal_handlers.EmailLoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  internal_handlers.SignupRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_handlers.SteamLoginRequest:
     properties:
       steam_id:
+        type: string
+    type: object
+  internal_handlers.UpdateEmailRequest:
+    properties:
+      email:
         type: string
     type: object
   internal_handlers.UpdateLibraryRequest:
@@ -64,18 +161,18 @@ info:
   title: Checkpoint MVP API
   version: "1.0"
 paths:
-  /auth/login:
-    post:
+  /auth/email:
+    put:
       consumes:
       - application/json
-      description: Authenticates a user using their Steam ID and returns a JWT token
+      description: Update the user's email address
       parameters:
-      - description: Login Request
+      - description: Update Email Request
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.LoginRequest'
+          $ref: '#/definitions/internal_handlers.UpdateEmailRequest'
       produces:
       - application/json
       responses:
@@ -102,7 +199,164 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Login with Steam
+      security:
+      - BearerAuth: []
+      summary: Update Email
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user using email and password
+      parameters:
+      - description: Login Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.EmailLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Traditional Login
+      tags:
+      - auth
+  /auth/signup:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user with email and password
+      parameters:
+      - description: Signup Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.SignupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Traditional Signup
+      tags:
+      - auth
+  /auth/steam:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates or creates a user using their Steam ID and syncs
+        library
+      parameters:
+      - description: Steam Login Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.SteamLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login/Signup with Steam
+      tags:
+      - auth
+  /auth/steam/link:
+    post:
+      consumes:
+      - application/json
+      description: Link a steam account to an existing user and sync library
+      parameters:
+      - description: Steam Link Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.SteamLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Link Steam Account
       tags:
       - auth
   /games/search:
@@ -219,6 +473,185 @@ paths:
       summary: Update Game Status
       tags:
       - library
+  /reviews:
+    post:
+      consumes:
+      - application/json
+      description: Write a review and rate a game
+      parameters:
+      - description: Create Review Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateReviewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a Review
+      tags:
+      - reviews
+  /reviews/game/{igdb_id}:
+    get:
+      consumes:
+      - application/json
+      description: Get all reviews for a specific game by IGDB ID
+      parameters:
+      - description: IGDB ID
+        in: path
+        name: igdb_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Game Reviews
+      tags:
+      - reviews
+  /social/feed:
+    get:
+      consumes:
+      - application/json
+      description: Get activity feed of followed users
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Activity'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Activity Feed
+      tags:
+      - social
+  /social/follow:
+    post:
+      consumes:
+      - application/json
+      description: Follow another user
+      parameters:
+      - description: User UUID to follow
+        in: query
+        name: following_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Follow User
+      tags:
+      - social
+  /social/profile/{user_id}:
+    get:
+      consumes:
+      - application/json
+      description: Fetch public user profile and basic stats
+      parameters:
+      - description: User UUID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get User Profile
+      tags:
+      - social
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.

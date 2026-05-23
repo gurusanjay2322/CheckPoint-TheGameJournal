@@ -7,13 +7,15 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	SteamID   string    `gorm:"uniqueIndex;not null" json:"steam_id"`
-	Username  string    `gorm:"not null" json:"username"`
-	AvatarURL string    `json:"avatar_url"`
-	Bio       string    `json:"bio"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Email        *string    `gorm:"uniqueIndex" json:"email"`
+	PasswordHash *string    `json:"-"`
+	SteamID      *string    `gorm:"uniqueIndex" json:"steam_id"`
+	Username     string     `gorm:"not null" json:"username"`
+	AvatarURL    string     `json:"avatar_url"`
+	Bio          string     `json:"bio"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 type Game struct {

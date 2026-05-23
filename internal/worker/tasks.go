@@ -30,7 +30,7 @@ func NewSyncSteamLibraryTask(userID, steamID string) (*asynq.Task, error) {
 	return asynq.NewTask(TypeSyncSteamLibrary, payload), nil
 }
 
-func HandleSyncSteamLibraryTask(steamClient *steam.Client) func(context.Context, *asynq.Task) error {
+func HandleSyncSteamLibraryTask(steamClient *steam.Client, asynqClient *asynq.Client) func(context.Context, *asynq.Task) error {
 	return func(ctx context.Context, t *asynq.Task) error {
 		var p SyncSteamLibraryPayload
 		if err := json.Unmarshal(t.Payload(), &p); err != nil {
@@ -73,6 +73,13 @@ func HandleSyncSteamLibraryTask(steamClient *steam.Client) func(context.Context,
 		}
 
 		log.Printf("Successfully synced %d games for User %s", len(games), p.UserID)
+
+		// Queue enrichment task to fetch IGDB metadata for the new games
+		enrichTask, err := NewEnrichSteamGamesTask()
+		if err == nil {
+			asynqClient.Enqueue(enrichTask)
+		}
+
 		return nil
 	}
 }
