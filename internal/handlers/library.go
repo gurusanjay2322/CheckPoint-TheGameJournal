@@ -3,14 +3,20 @@ package handlers
 import (
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
+	"github.com/checkpoint/server/internal/worker"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 )
 
-type LibraryHandler struct{}
+type LibraryHandler struct {
+	asynqClient *asynq.Client
+}
 
-func NewLibraryHandler() *LibraryHandler {
-	return &LibraryHandler{}
+func NewLibraryHandler(asynqClient *asynq.Client) *LibraryHandler {
+	return &LibraryHandler{
+		asynqClient: asynqClient,
+	}
 }
 
 // GetUserLibrary godoc
@@ -41,9 +47,9 @@ func (h *LibraryHandler) GetUserLibrary(c *fiber.Ctx) error {
 }
 
 type UpdateLibraryRequest struct {
-	IGDBID int    `json:"igdb_id"`
-	Title  string `json:"title"`
-	Status string `json:"status"` // playing, completed, backlog, dropped, wishlist
+	IGDBID    int    `json:"igdb_id"`
+	GameTitle string `json:"game_title"`
+	Status    string `json:"status"` // playing, completed, backlog, dropped, wishlist
 }
 
 // UpdateStatus godoc
@@ -77,10 +83,15 @@ func (h *LibraryHandler) UpdateStatus(c *fiber.Ctx) error {
 	if result.Error != nil {
 		game = models.Game{
 			IGDBID: &req.IGDBID,
-			Title:  req.Title,
+			Title:  req.GameTitle,
 		}
 		if err := db.DB.Create(&game).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create local game record"})
+		}
+
+		// Enqueue background enrichment task to overwrite title with official IGDB data
+		if task, err := worker.NewEnrichIGDBGameTask(req.IGDBID); err == nil {
+			h.asynqClient.Enqueue(task)
 		}
 	}
 

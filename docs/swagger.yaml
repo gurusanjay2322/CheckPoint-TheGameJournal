@@ -110,13 +110,13 @@ definitions:
         type: boolean
       content:
         type: string
+      game_title:
+        type: string
       igdb_id:
         type: integer
       rating:
         description: 0-5
         type: number
-      title:
-        type: string
     type: object
   internal_handlers.EmailLoginRequest:
     properties:
@@ -146,12 +146,12 @@ definitions:
     type: object
   internal_handlers.UpdateLibraryRequest:
     properties:
+      game_title:
+        type: string
       igdb_id:
         type: integer
       status:
         description: playing, completed, backlog, dropped, wishlist
-        type: string
-      title:
         type: string
     type: object
 host: localhost:3000

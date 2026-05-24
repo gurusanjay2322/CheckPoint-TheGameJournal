@@ -1251,15 +1251,15 @@ const docTemplate = `{
                 "content": {
                     "type": "string"
                 },
+                "game_title": {
+                    "type": "string"
+                },
                 "igdb_id": {
                     "type": "integer"
                 },
                 "rating": {
                     "description": "0-5",
                     "type": "number"
-                },
-                "title": {
-                    "type": "string"
                 }
             }
         },
@@ -1307,14 +1307,14 @@ const docTemplate = `{
         "internal_handlers.UpdateLibraryRequest": {
             "type": "object",
             "properties": {
+                "game_title": {
+                    "type": "string"
+                },
                 "igdb_id": {
                     "type": "integer"
                 },
                 "status": {
                     "description": "playing, completed, backlog, dropped, wishlist",
-                    "type": "string"
-                },
-                "title": {
                     "type": "string"
                 }
             }

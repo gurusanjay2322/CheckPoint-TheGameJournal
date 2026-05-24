@@ -69,8 +69,8 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(cfg, steamClient, asynqClient)
 	gamesHandler := handlers.NewGamesHandler(igdbClient)
-	libraryHandler := handlers.NewLibraryHandler()
-	reviewsHandler := handlers.NewReviewsHandler()
+	libraryHandler := handlers.NewLibraryHandler(asynqClient)
+	reviewsHandler := handlers.NewReviewsHandler(asynqClient)
 	socialHandler := handlers.NewSocialHandler()
 
 	// Setup routes

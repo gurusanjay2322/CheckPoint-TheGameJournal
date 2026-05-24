@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -17,10 +18,23 @@ import (
 
 const (
 	TypeEnrichSteamGames = "enrich:steam_games"
+	TypeEnrichIGDBGame   = "enrich:igdb_game"
 )
 
 func NewEnrichSteamGamesTask() (*asynq.Task, error) {
 	return asynq.NewTask(TypeEnrichSteamGames, nil), nil
+}
+
+type EnrichIGDBGamePayload struct {
+	IGDBID int `json:"igdb_id"`
+}
+
+func NewEnrichIGDBGameTask(igdbID int) (*asynq.Task, error) {
+	payload, err := json.Marshal(EnrichIGDBGamePayload{IGDBID: igdbID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeEnrichIGDBGame, payload), nil
 }
 
 func HandleEnrichSteamGamesTask(igdbClient *igdb.Client) func(context.Context, *asynq.Task) error {
@@ -112,6 +126,67 @@ func HandleEnrichSteamGamesTask(igdbClient *igdb.Client) func(context.Context, *
 		}
 
 		log.Println("Enrichment task completed successfully.")
+		return nil
+	}
+}
+
+func HandleEnrichIGDBGameTask(igdbClient *igdb.Client) func(context.Context, *asynq.Task) error {
+	return func(ctx context.Context, t *asynq.Task) error {
+		var p EnrichIGDBGamePayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil {
+			return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
+		}
+
+		log.Printf("Starting IGDB enrichment for game ID: %d", p.IGDBID)
+
+		var localGame models.Game
+		if err := db.DB.Where("igdb_id = ?", p.IGDBID).First(&localGame).Error; err != nil {
+			return fmt.Errorf("local game not found for IGDB ID %d: %v", p.IGDBID, err)
+		}
+
+		igdbQuery := fmt.Sprintf(`fields id,name,cover.image_id,first_release_date,summary; where id = %d; limit 1;`, p.IGDBID)
+		respBytes, err := igdbClient.PostRequest("games", igdbQuery)
+		if err != nil {
+			return fmt.Errorf("failed to fetch game %d from IGDB: %v", p.IGDBID, err)
+		}
+
+		var results []map[string]interface{}
+		if err := json.Unmarshal(respBytes, &results); err != nil {
+			return fmt.Errorf("failed to parse IGDB response for %d: %v", p.IGDBID, err)
+		}
+
+		if len(results) == 0 {
+			log.Printf("IGDB returned no results for game ID: %d", p.IGDBID)
+			return nil // The ID might be invalid, don't retry
+		}
+
+		gameData := results[0]
+
+		// Overwrite the user-provided title with the official IGDB title
+		if name, ok := gameData["name"].(string); ok {
+			localGame.Title = name
+		}
+
+		if summary, ok := gameData["summary"].(string); ok {
+			localGame.Summary = summary
+		}
+
+		if frd, ok := gameData["first_release_date"].(float64); ok {
+			t := time.Unix(int64(frd), 0)
+			localGame.ReleaseDate = &t
+		}
+
+		if coverObj, ok := gameData["cover"].(map[string]interface{}); ok {
+			if imageID, exists := coverObj["image_id"].(string); exists {
+				localGame.CoverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", imageID)
+			}
+		}
+
+		if err := db.DB.Save(&localGame).Error; err != nil {
+			return fmt.Errorf("failed to save enriched local game %d: %v", p.IGDBID, err)
+		}
+
+		log.Printf("Successfully enriched and overwritten local game: %s (IGDB ID: %d)", localGame.Title, p.IGDBID)
 		return nil
 	}
 }

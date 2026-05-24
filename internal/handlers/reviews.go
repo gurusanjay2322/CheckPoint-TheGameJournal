@@ -3,19 +3,25 @@ package handlers
 import (
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
+	"github.com/checkpoint/server/internal/worker"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 )
 
-type ReviewsHandler struct{}
+type ReviewsHandler struct {
+	asynqClient *asynq.Client
+}
 
-func NewReviewsHandler() *ReviewsHandler {
-	return &ReviewsHandler{}
+func NewReviewsHandler(asynqClient *asynq.Client) *ReviewsHandler {
+	return &ReviewsHandler{
+		asynqClient: asynqClient,
+	}
 }
 
 type CreateReviewRequest struct {
 	IGDBID          int     `json:"igdb_id"`
-	Title           string  `json:"title"`
+	GameTitle       string  `json:"game_title"`
 	Rating          float32 `json:"rating"` // 0-5
 	Content         string  `json:"content"`
 	ContainsSpoiler bool   `json:"contains_spoiler"`
@@ -56,10 +62,15 @@ func (h *ReviewsHandler) CreateReview(c *fiber.Ctx) error {
 	if result.Error != nil {
 		game = models.Game{
 			IGDBID: &req.IGDBID,
-			Title:  req.Title,
+			Title:  req.GameTitle,
 		}
 		if err := db.DB.Create(&game).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create game record"})
+		}
+
+		// Enqueue background enrichment task to overwrite title with official IGDB data
+		if task, err := worker.NewEnrichIGDBGameTask(req.IGDBID); err == nil {
+			h.asynqClient.Enqueue(task)
 		}
 	}
 

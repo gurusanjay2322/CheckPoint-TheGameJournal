@@ -45,6 +45,7 @@ func main() {
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(worker.TypeSyncSteamLibrary, worker.HandleSyncSteamLibraryTask(steamClient, asynqClient))
 	mux.HandleFunc(worker.TypeEnrichSteamGames, worker.HandleEnrichSteamGamesTask(igdbClient))
+	mux.HandleFunc(worker.TypeEnrichIGDBGame, worker.HandleEnrichIGDBGameTask(igdbClient))
 
 	log.Println("Starting Asynq worker server...")
 	if err := srv.Run(mux); err != nil {
