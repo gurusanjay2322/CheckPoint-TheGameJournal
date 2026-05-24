@@ -5,7 +5,7 @@
 > ⚠️ **Status: In Active Development** 
 > This backend API is currently under heavy development. The core MVP endpoints are mostly functional, but schemas and routes are subject to change.
 
-## 🚀 Current Features (Backend API)
+##  Current Features (Backend API)
 
 We have scaffolded out the core backend using **Go (Fiber)**, backed by a **PostgreSQL (Supabase)** database and a **Redis** worker queue.
 
