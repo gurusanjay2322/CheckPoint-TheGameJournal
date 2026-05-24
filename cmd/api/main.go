@@ -90,15 +90,21 @@ func main() {
 
 	games := api.Group("/games")
 	games.Get("/search", gamesHandler.Search)
+	games.Get("/discover", gamesHandler.Discover)
+	games.Get("/trending", gamesHandler.Trending)
+	games.Get("/new-releases", gamesHandler.NewReleases)
+	games.Get("/:id", gamesHandler.GetGameByID)
 
 	library := api.Group("/library")
 	library.Get("/:user_id", libraryHandler.GetUserLibrary)
 
 	reviews := api.Group("/reviews")
 	reviews.Get("/game/:igdb_id", reviewsHandler.GetGameReviews)
+	reviews.Get("/user/:user_id", reviewsHandler.GetUserReviews)
 
 	social := api.Group("/social")
 	social.Get("/profile/:user_id", socialHandler.GetProfile)
+	social.Get("/activity/:user_id", socialHandler.GetUserActivity)
 
 	// Protected routes
 	api.Put("/auth/email", middleware.Protected(cfg), authHandler.UpdateEmail)

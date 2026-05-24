@@ -14,10 +14,10 @@ func NewReviewsHandler() *ReviewsHandler {
 }
 
 type CreateReviewRequest struct {
-	IGDBID          int    `json:"igdb_id"`
-	Title           string `json:"title"`
-	Rating          int    `json:"rating"` // 1-10
-	Content         string `json:"content"`
+	IGDBID          int     `json:"igdb_id"`
+	Title           string  `json:"title"`
+	Rating          float32 `json:"rating"` // 0-5
+	Content         string  `json:"content"`
 	ContainsSpoiler bool   `json:"contains_spoiler"`
 }
 
@@ -46,8 +46,8 @@ func (h *ReviewsHandler) CreateReview(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	if req.Rating < 1 || req.Rating > 10 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "rating must be between 1 and 10"})
+	if req.Rating < 0 || req.Rating > 5 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "rating must be between 0 and 5"})
 	}
 
 	// Ensure game exists locally
@@ -85,6 +85,9 @@ func (h *ReviewsHandler) CreateReview(c *fiber.Ctx) error {
 	}
 	db.DB.Create(&activity)
 
+	// Fetch fully loaded review to return to frontend (populates User and Game objects)
+	db.DB.Preload("User").Preload("Game").First(&review, review.ID)
+
 	return c.JSON(review)
 }
 
@@ -111,8 +114,34 @@ func (h *ReviewsHandler) GetGameReviews(c *fiber.Ctx) error {
 	}
 
 	var reviews []models.Review
-	if err := db.DB.Preload("User").Where("game_id = ?", game.ID).Order("created_at desc").Find(&reviews).Error; err != nil {
+	if err := db.DB.Preload("User").Preload("Game").Where("game_id = ?", game.ID).Order("created_at desc").Find(&reviews).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch reviews"})
+	}
+
+	return c.JSON(reviews)
+}
+
+// GetUserReviews godoc
+// @Summary Get User Reviews
+// @Description Get all reviews made by a specific user
+// @Tags reviews
+// @Accept json
+// @Produce json
+// @Param user_id path string true "User UUID"
+// @Success 200 {array} models.Review
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /reviews/user/{user_id} [get]
+func (h *ReviewsHandler) GetUserReviews(c *fiber.Ctx) error {
+	userIDStr := c.Params("user_id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user_id"})
+	}
+
+	var reviews []models.Review
+	if err := db.DB.Preload("User").Preload("Game").Where("user_id = ?", userID).Order("created_at desc").Find(&reviews).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch user reviews"})
 	}
 
 	return c.JSON(reviews)

@@ -126,3 +126,33 @@ func (h *SocialHandler) GetProfile(c *fiber.Ctx) error {
 		"total_reviews": reviewCount,
 	})
 }
+
+// GetUserActivity godoc
+// @Summary Get User Activity
+// @Description Get the activity feed for a specific user
+// @Tags social
+// @Accept json
+// @Produce json
+// @Param user_id path string true "User UUID"
+// @Success 200 {array} models.Activity
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /social/activity/{user_id} [get]
+func (h *SocialHandler) GetUserActivity(c *fiber.Ctx) error {
+	userIDStr := c.Params("user_id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user id"})
+	}
+
+	var activities []models.Activity
+	if err := db.DB.Preload("User").
+		Where("user_id = ?", userID).
+		Order("created_at desc").
+		Limit(50).
+		Find(&activities).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch user activity"})
+	}
+
+	return c.JSON(activities)
+}

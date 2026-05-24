@@ -152,12 +152,12 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 	if err != nil || len(summaries) == 0 {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid steam_id or failed to fetch profile"})
 	}
-	
+
 	player := summaries[0]
 
 	var user models.User
 	result := db.DB.Where("steam_id = ?", req.SteamID).First(&user)
-	
+
 	if result.Error != nil {
 		// New User via Steam
 		user = models.User{
@@ -176,7 +176,7 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 		}
 	}
 
-	// Always queue a background sync when logging in via Steam 
+	// Always queue a background sync when logging in via Steam
 	// to ensure their library is up to date with new purchases
 	task, err := worker.NewSyncSteamLibraryTask(user.ID.String(), req.SteamID)
 	if err == nil {

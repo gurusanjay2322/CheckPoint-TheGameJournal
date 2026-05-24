@@ -56,8 +56,8 @@ definitions:
       id:
         type: string
       rating:
-        description: 1-10
-        type: integer
+        description: 0-5 stars
+        type: number
       updated_at:
         type: string
       user:
@@ -113,8 +113,8 @@ definitions:
       igdb_id:
         type: integer
       rating:
-        description: 1-10
-        type: integer
+        description: 0-5
+        type: number
       title:
         type: string
     type: object
@@ -359,6 +359,112 @@ paths:
       summary: Link Steam Account
       tags:
       - auth
+  /games/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Fetch detailed information for a specific game by its IGDB ID
+      parameters:
+      - description: IGDB Game ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Game by ID
+      tags:
+      - games
+  /games/discover:
+    get:
+      consumes:
+      - application/json
+      description: Fetch popular mainstream games (All time)
+      parameters:
+      - description: Limit (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Discover Games
+      tags:
+      - games
+  /games/new-releases:
+    get:
+      consumes:
+      - application/json
+      description: Fetch newly released games
+      parameters:
+      - description: Limit (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: New Releases
+      tags:
+      - games
   /games/search:
     get:
       consumes:
@@ -393,6 +499,39 @@ paths:
               type: string
             type: object
       summary: Search Games
+      tags:
+      - games
+  /games/trending:
+    get:
+      consumes:
+      - application/json
+      description: Fetch currently trending games
+      parameters:
+      - description: Limit (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Trending Games
       tags:
       - games
   /library/{user_id}:
@@ -550,6 +689,76 @@ paths:
       summary: Get Game Reviews
       tags:
       - reviews
+  /reviews/user/{user_id}:
+    get:
+      consumes:
+      - application/json
+      description: Get all reviews made by a specific user
+      parameters:
+      - description: User UUID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get User Reviews
+      tags:
+      - reviews
+  /social/activity/{user_id}:
+    get:
+      consumes:
+      - application/json
+      description: Get the activity feed for a specific user
+      parameters:
+      - description: User UUID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Activity'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get User Activity
+      tags:
+      - social
   /social/feed:
     get:
       consumes:
