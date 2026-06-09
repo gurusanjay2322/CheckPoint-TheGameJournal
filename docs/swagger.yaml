@@ -1,25 +1,97 @@
 basePath: /api/v1
 definitions:
-  github_com_checkpoint_server_internal_models.Activity:
+  handlers.CreateReviewRequest:
     properties:
-      action_type:
-        description: rated, reviewed, status_change
+      contains_spoiler:
+        type: boolean
+      content:
         type: string
-      created_at:
+      game_title:
         type: string
-      id:
+      igdb_id:
+        type: integer
+      rating:
+        maximum: 5
+        minimum: 0
+        type: number
+    required:
+    - igdb_id
+    type: object
+  handlers.EmailLoginRequest:
+    properties:
+      email:
         type: string
-      target_id:
+      password:
         type: string
-      target_type:
-        description: review, user_game
+    required:
+    - email
+    - password
+    type: object
+  handlers.SignupRequest:
+    properties:
+      email:
         type: string
-      user:
-        $ref: '#/definitions/github_com_checkpoint_server_internal_models.User'
-      user_id:
+      password:
+        minLength: 6
+        type: string
+      username:
+        maxLength: 50
+        minLength: 2
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  handlers.SteamLoginRequest:
+    properties:
+      steam_id:
+        type: string
+    required:
+    - steam_id
+    type: object
+  handlers.UpdateEmailRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  handlers.UpdateLibraryRequest:
+    properties:
+      game_title:
+        type: string
+      igdb_id:
+        type: integer
+      status:
+        type: string
+    required:
+    - igdb_id
+    - status
+    type: object
+  handlers.UpdateProfileRequest:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      username:
+        maxLength: 50
+        minLength: 2
         type: string
     type: object
-  github_com_checkpoint_server_internal_models.Game:
+  handlers.UpdateReviewRequest:
+    properties:
+      contains_spoiler:
+        type: boolean
+      content:
+        type: string
+      rating:
+        maximum: 5
+        minimum: 0
+        type: number
+    type: object
+  models.Game:
     properties:
       cover_url:
         type: string
@@ -41,7 +113,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  github_com_checkpoint_server_internal_models.Review:
+  models.Review:
     properties:
       contains_spoiler:
         type: boolean
@@ -50,7 +122,7 @@ definitions:
       created_at:
         type: string
       game:
-        $ref: '#/definitions/github_com_checkpoint_server_internal_models.Game'
+        $ref: '#/definitions/models.Game'
       game_id:
         type: string
       id:
@@ -61,11 +133,11 @@ definitions:
       updated_at:
         type: string
       user:
-        $ref: '#/definitions/github_com_checkpoint_server_internal_models.User'
+        $ref: '#/definitions/models.User'
       user_id:
         type: string
     type: object
-  github_com_checkpoint_server_internal_models.User:
+  models.User:
     properties:
       avatar_url:
         type: string
@@ -82,76 +154,6 @@ definitions:
       updated_at:
         type: string
       username:
-        type: string
-    type: object
-  github_com_checkpoint_server_internal_models.UserGame:
-    properties:
-      created_at:
-        type: string
-      game:
-        $ref: '#/definitions/github_com_checkpoint_server_internal_models.Game'
-      game_id:
-        type: string
-      last_played_at:
-        type: string
-      playtime_minutes:
-        type: integer
-      status:
-        description: playing, completed, backlog, dropped, wishlist
-        type: string
-      updated_at:
-        type: string
-      user_id:
-        type: string
-    type: object
-  internal_handlers.CreateReviewRequest:
-    properties:
-      contains_spoiler:
-        type: boolean
-      content:
-        type: string
-      game_title:
-        type: string
-      igdb_id:
-        type: integer
-      rating:
-        description: 0-5
-        type: number
-    type: object
-  internal_handlers.EmailLoginRequest:
-    properties:
-      email:
-        type: string
-      password:
-        type: string
-    type: object
-  internal_handlers.SignupRequest:
-    properties:
-      email:
-        type: string
-      password:
-        type: string
-      username:
-        type: string
-    type: object
-  internal_handlers.SteamLoginRequest:
-    properties:
-      steam_id:
-        type: string
-    type: object
-  internal_handlers.UpdateEmailRequest:
-    properties:
-      email:
-        type: string
-    type: object
-  internal_handlers.UpdateLibraryRequest:
-    properties:
-      game_title:
-        type: string
-      igdb_id:
-        type: integer
-      status:
-        description: playing, completed, backlog, dropped, wishlist
         type: string
     type: object
 host: localhost:3000
@@ -172,7 +174,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.UpdateEmailRequest'
+          $ref: '#/definitions/handlers.UpdateEmailRequest'
       produces:
       - application/json
       responses:
@@ -215,7 +217,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.EmailLoginRequest'
+          $ref: '#/definitions/handlers.EmailLoginRequest'
       produces:
       - application/json
       responses:
@@ -239,6 +241,79 @@ paths:
       summary: Traditional Login
       tags:
       - auth
+  /auth/me:
+    get:
+      consumes:
+      - application/json
+      description: Get the currently authenticated user's profile
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Current User
+      tags:
+      - auth
+  /auth/profile:
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's profile (username, bio, avatar)
+      parameters:
+      - description: Update Profile Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update Profile
+      tags:
+      - auth
   /auth/signup:
     post:
       consumes:
@@ -250,7 +325,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.SignupRequest'
+          $ref: '#/definitions/handlers.SignupRequest'
       produces:
       - application/json
       responses:
@@ -286,7 +361,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.SteamLoginRequest'
+          $ref: '#/definitions/handlers.SteamLoginRequest'
       produces:
       - application/json
       responses:
@@ -327,7 +402,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.SteamLoginRequest'
+          $ref: '#/definitions/handlers.SteamLoginRequest'
       produces:
       - application/json
       responses:
@@ -476,6 +551,14 @@ paths:
         name: q
         required: true
         type: string
+      - description: Limit (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset (default 0)
+        in: query
+        name: offset
+        type: integer
       produces:
       - application/json
       responses:
@@ -534,6 +617,45 @@ paths:
       summary: Trending Games
       tags:
       - games
+  /library/{game_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a game from the user's library
+      parameters:
+      - description: Game UUID
+        in: path
+        name: game_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove Game from Library
+      tags:
+      - library
   /library/{user_id}:
     get:
       consumes:
@@ -545,15 +667,26 @@ paths:
         name: user_id
         required: true
         type: string
+      - description: Filter by status (playing, completed, backlog, dropped, wishlist)
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_checkpoint_server_internal_models.UserGame'
-            type: array
+            additionalProperties: true
+            type: object
         "400":
           description: Bad Request
           schema:
@@ -580,7 +713,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.UpdateLibraryRequest'
+          $ref: '#/definitions/handlers.UpdateLibraryRequest'
       produces:
       - application/json
       responses:
@@ -623,14 +756,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handlers.CreateReviewRequest'
+          $ref: '#/definitions/handlers.CreateReviewRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
+            $ref: '#/definitions/models.Review'
         "400":
           description: Bad Request
           schema:
@@ -639,6 +772,12 @@ paths:
             type: object
         "401":
           description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
           schema:
             additionalProperties:
               type: string
@@ -654,6 +793,91 @@ paths:
       summary: Create a Review
       tags:
       - reviews
+  /reviews/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete your review for a game
+      parameters:
+      - description: Review UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a Review
+      tags:
+      - reviews
+    put:
+      consumes:
+      - application/json
+      description: Update your review for a game
+      parameters:
+      - description: Review UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update Review Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateReviewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Review'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a Review
+      tags:
+      - reviews
   /reviews/game/{igdb_id}:
     get:
       consumes:
@@ -665,15 +889,22 @@ paths:
         name: igdb_id
         required: true
         type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
-            type: array
+            additionalProperties: true
+            type: object
         "400":
           description: Bad Request
           schema:
@@ -700,15 +931,22 @@ paths:
         name: user_id
         required: true
         type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Review'
-            type: array
+            additionalProperties: true
+            type: object
         "400":
           description: Bad Request
           schema:
@@ -735,15 +973,22 @@ paths:
         name: user_id
         required: true
         type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Activity'
-            type: array
+            additionalProperties: true
+            type: object
         "400":
           description: Bad Request
           schema:
@@ -764,15 +1009,23 @@ paths:
       consumes:
       - application/json
       description: Get activity feed of followed users
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_checkpoint_server_internal_models.Activity'
-            type: array
+            additionalProperties: true
+            type: object
         "401":
           description: Unauthorized
           schema:
@@ -791,6 +1044,38 @@ paths:
       tags:
       - social
   /social/follow:
+    delete:
+      consumes:
+      - application/json
+      description: Unfollow a user you currently follow
+      parameters:
+      - description: User UUID to unfollow
+        in: query
+        name: following_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Unfollow User
+      tags:
+      - social
     post:
       consumes:
       - application/json
@@ -859,6 +1144,42 @@ paths:
               type: string
             type: object
       summary: Get User Profile
+      tags:
+      - social
+  /users/search:
+    get:
+      consumes:
+      - application/json
+      description: Search users by username
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Search Users
       tags:
       - social
 securityDefinitions:

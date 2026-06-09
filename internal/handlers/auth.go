@@ -27,9 +27,9 @@ func NewAuthHandler(cfg *config.Config, steamClient *steam.Client, asynqClient *
 }
 
 type SignupRequest struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Email    string `json:"email" validate:"required,email"`
+	Username string `json:"username" validate:"required,min=2,max=50"`
+	Password string `json:"password" validate:"required,min=6"`
 }
 
 // Signup godoc
@@ -45,17 +45,13 @@ type SignupRequest struct {
 // @Router /auth/signup [post]
 func (h *AuthHandler) Signup(c *fiber.Ctx) error {
 	var req SignupRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
-	}
-
-	if req.Email == "" || req.Password == "" || req.Username == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Email, username, and password are required"})
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	hash, err := utils.HashPassword(req.Password)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to hash password"})
+		return utils.InternalError(c, "failed to process password")
 	}
 
 	user := models.User{
@@ -65,12 +61,12 @@ func (h *AuthHandler) Signup(c *fiber.Ctx) error {
 	}
 
 	if err := db.DB.Create(&user).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Email may already be in use"})
+		return utils.BadRequest(c, "email may already be in use")
 	}
 
 	token, err := utils.GenerateJWT(user.ID.String(), h.Cfg.JWTSecret)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate token"})
+		return utils.InternalError(c, "failed to generate token")
 	}
 
 	return c.JSON(fiber.Map{
@@ -80,8 +76,8 @@ func (h *AuthHandler) Signup(c *fiber.Ctx) error {
 }
 
 type EmailLoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
 }
 
 // EmailLogin godoc
@@ -97,23 +93,23 @@ type EmailLoginRequest struct {
 // @Router /auth/login [post]
 func (h *AuthHandler) EmailLogin(c *fiber.Ctx) error {
 	var req EmailLoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	var user models.User
 	result := db.DB.Where("email = ?", req.Email).First(&user)
 	if result.Error != nil || user.PasswordHash == nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid email or password"})
+		return utils.Unauthorized(c, "invalid email or password")
 	}
 
 	if !utils.CheckPasswordHash(req.Password, *user.PasswordHash) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid email or password"})
+		return utils.Unauthorized(c, "invalid email or password")
 	}
 
 	token, err := utils.GenerateJWT(user.ID.String(), h.Cfg.JWTSecret)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate token"})
+		return utils.InternalError(c, "failed to generate token")
 	}
 
 	return c.JSON(fiber.Map{
@@ -123,7 +119,7 @@ func (h *AuthHandler) EmailLogin(c *fiber.Ctx) error {
 }
 
 type SteamLoginRequest struct {
-	SteamID string `json:"steam_id"`
+	SteamID string `json:"steam_id" validate:"required"`
 }
 
 // SteamLogin godoc
@@ -140,17 +136,13 @@ type SteamLoginRequest struct {
 // @Router /auth/steam [post]
 func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 	var req SteamLoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
-	}
-
-	if req.SteamID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "steam_id is required"})
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	summaries, err := h.SteamClient.GetPlayerSummaries([]string{req.SteamID})
 	if err != nil || len(summaries) == 0 {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid steam_id or failed to fetch profile"})
+		return utils.Unauthorized(c, "invalid steam_id or failed to fetch profile")
 	}
 
 	player := summaries[0]
@@ -159,14 +151,13 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 	result := db.DB.Where("steam_id = ?", req.SteamID).First(&user)
 
 	if result.Error != nil {
-		// New User via Steam
 		user = models.User{
 			SteamID:   &req.SteamID,
 			Username:  player.PersonaName,
 			AvatarURL: player.AvatarFull,
 		}
 		if err := db.DB.Create(&user).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create user"})
+			return utils.InternalError(c, "failed to create user")
 		}
 	} else {
 		if user.Username != player.PersonaName || user.AvatarURL != player.AvatarFull {
@@ -176,8 +167,6 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 		}
 	}
 
-	// Always queue a background sync when logging in via Steam
-	// to ensure their library is up to date with new purchases
 	task, err := worker.NewSyncSteamLibraryTask(user.ID.String(), req.SteamID)
 	if err == nil {
 		h.AsynqClient.Enqueue(task)
@@ -185,7 +174,7 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 
 	token, err := utils.GenerateJWT(user.ID.String(), h.Cfg.JWTSecret)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate token"})
+		return utils.InternalError(c, "failed to generate token")
 	}
 
 	return c.JSON(fiber.Map{
@@ -210,38 +199,33 @@ func (h *AuthHandler) SteamLogin(c *fiber.Ctx) error {
 func (h *AuthHandler) LinkSteam(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		return utils.Unauthorized(c, "unauthorized")
 	}
 	userID, _ := uuid.Parse(userIDStr)
 
 	var req SteamLoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
-	}
-
-	if req.SteamID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "steam_id is required"})
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	summaries, err := h.SteamClient.GetPlayerSummaries([]string{req.SteamID})
 	if err != nil || len(summaries) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid steam_id or failed to fetch profile"})
+		return utils.BadRequest(c, "invalid steam_id or failed to fetch profile")
 	}
 	player := summaries[0]
 
 	var user models.User
 	if err := db.DB.First(&user, userID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
+		return utils.NotFound(c, "user not found")
 	}
 
 	user.SteamID = &req.SteamID
-	// Optionally update avatar if they don't have one
 	if user.AvatarURL == "" {
 		user.AvatarURL = player.AvatarFull
 	}
 
 	if err := db.DB.Save(&user).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Steam account may already be linked to another account"})
+		return utils.BadRequest(c, "steam account may already be linked to another account")
 	}
 
 	task, err := worker.NewSyncSteamLibraryTask(userIDStr, req.SteamID)
@@ -256,7 +240,91 @@ func (h *AuthHandler) LinkSteam(c *fiber.Ctx) error {
 }
 
 type UpdateEmailRequest struct {
-	Email string `json:"email"`
+	Email string `json:"email" validate:"required,email"`
+}
+
+// GetMe godoc
+// @Summary Get Current User
+// @Description Get the currently authenticated user's profile
+// @Tags auth
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /auth/me [get]
+func (h *AuthHandler) GetMe(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return utils.Unauthorized(c, "unauthorized")
+	}
+
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userIDStr).Error; err != nil {
+		return utils.NotFound(c, "user not found")
+	}
+
+	return c.JSON(fiber.Map{"user": user})
+}
+
+type UpdateProfileRequest struct {
+	Username  string `json:"username,omitempty" validate:"omitempty,min=2,max=50"`
+	Bio       string `json:"bio,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+}
+
+// UpdateProfile godoc
+// @Summary Update Profile
+// @Description Update the current user's profile (username, bio, avatar)
+// @Tags auth
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body UpdateProfileRequest true "Update Profile Request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /auth/profile [put]
+func (h *AuthHandler) UpdateProfile(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return utils.Unauthorized(c, "unauthorized")
+	}
+	userID, _ := uuid.Parse(userIDStr)
+
+	var req UpdateProfileRequest
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
+	}
+
+	var user models.User
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		return utils.NotFound(c, "user not found")
+	}
+
+	updates := map[string]interface{}{}
+	if req.Username != "" {
+		updates["username"] = req.Username
+	}
+	if req.Bio != "" {
+		updates["bio"] = req.Bio
+	}
+	if req.AvatarURL != "" {
+		updates["avatar_url"] = req.AvatarURL
+	}
+
+	if len(updates) == 0 {
+		return utils.BadRequest(c, "no fields to update")
+	}
+
+	if err := db.DB.Model(&user).Updates(updates).Error; err != nil {
+		return utils.InternalError(c, "failed to update profile")
+	}
+
+	db.DB.First(&user, userID)
+	return c.JSON(fiber.Map{"user": user})
 }
 
 // UpdateEmail godoc
@@ -275,27 +343,23 @@ type UpdateEmailRequest struct {
 func (h *AuthHandler) UpdateEmail(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		return utils.Unauthorized(c, "unauthorized")
 	}
 	userID, _ := uuid.Parse(userIDStr)
 
 	var req UpdateEmailRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
-	}
-
-	if req.Email == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Email cannot be empty"})
+	if err := utils.ParseAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	var user models.User
 	if err := db.DB.First(&user, userID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
+		return utils.NotFound(c, "user not found")
 	}
 
 	user.Email = &req.Email
 	if err := db.DB.Save(&user).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update email. It may already be in use."})
+		return utils.InternalError(c, "failed to update email. it may already be in use.")
 	}
 
 	return c.JSON(fiber.Map{

@@ -3,6 +3,7 @@ package handlers
 import (
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
+	"github.com/checkpoint/server/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -28,18 +29,17 @@ func NewSocialHandler() *SocialHandler {
 func (h *SocialHandler) FollowUser(c *fiber.Ctx) error {
 	followerIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		return utils.Unauthorized(c, "unauthorized")
 	}
 	followerID, _ := uuid.Parse(followerIDStr)
 
-	followingIDStr := c.Query("following_id")
-	followingID, err := uuid.Parse(followingIDStr)
+	followingID, err := uuid.Parse(c.Query("following_id"))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid following_id"})
+		return utils.BadRequest(c, "invalid following_id")
 	}
 
 	if followerID == followingID {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot follow yourself"})
+		return utils.BadRequest(c, "cannot follow yourself")
 	}
 
 	follow := models.Follow{
@@ -48,10 +48,42 @@ func (h *SocialHandler) FollowUser(c *fiber.Ctx) error {
 	}
 
 	if err := db.DB.FirstOrCreate(&follow, follow).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to follow user"})
+		return utils.InternalError(c, "failed to follow user")
 	}
 
 	return c.JSON(fiber.Map{"message": "successfully followed user"})
+}
+
+// UnfollowUser godoc
+// @Summary Unfollow User
+// @Description Unfollow a user you currently follow
+// @Tags social
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param following_id query string true "User UUID to unfollow"
+// @Success 204 {object} nil
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Router /social/follow [delete]
+func (h *SocialHandler) UnfollowUser(c *fiber.Ctx) error {
+	followerIDStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return utils.Unauthorized(c, "unauthorized")
+	}
+	followerID, _ := uuid.Parse(followerIDStr)
+
+	followingID, err := uuid.Parse(c.Query("following_id"))
+	if err != nil {
+		return utils.BadRequest(c, "invalid following_id")
+	}
+
+	result := db.DB.Where("follower_id = ? AND following_id = ?", followerID, followingID).Delete(&models.Follow{})
+	if result.RowsAffected == 0 {
+		return utils.NotFound(c, "follow relationship not found")
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 // GetFeed godoc
@@ -61,15 +93,19 @@ func (h *SocialHandler) FollowUser(c *fiber.Ctx) error {
 // @Security BearerAuth
 // @Accept json
 // @Produce json
-// @Success 200 {array} models.Activity
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20, max 100)"
+// @Success 200 {object} map[string]interface{}
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /social/feed [get]
 func (h *SocialHandler) GetFeed(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		return utils.Unauthorized(c, "unauthorized")
 	}
+
+	page, pageSize := utils.ParsePagination(c)
 
 	var follows []models.Follow
 	db.DB.Where("follower_id = ?", userIDStr).Find(&follows)
@@ -80,15 +116,21 @@ func (h *SocialHandler) GetFeed(c *fiber.Ctx) error {
 	}
 
 	var activities []models.Activity
+	var total int64
+
 	if len(followingIDs) > 0 {
-		db.DB.Preload("User").
-			Where("user_id IN ?", followingIDs).
+		baseQuery := db.DB.Preload("User").Where("user_id IN ?", followingIDs)
+
+		baseQuery.Model(&models.Activity{}).Count(&total)
+
+		baseQuery.
 			Order("created_at desc").
-			Limit(50).
+			Offset((page - 1) * pageSize).
+			Limit(pageSize).
 			Find(&activities)
 	}
 
-	return c.JSON(activities)
+	return c.JSON(fiber.Map{"data": activities, "meta": utils.NewPaginationMeta(int(total), page, pageSize)})
 }
 
 // GetProfile godoc
@@ -103,15 +145,14 @@ func (h *SocialHandler) GetFeed(c *fiber.Ctx) error {
 // @Failure 404 {object} map[string]string
 // @Router /social/profile/{user_id} [get]
 func (h *SocialHandler) GetProfile(c *fiber.Ctx) error {
-	userIDStr := c.Params("user_id")
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Params("user_id"))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user id"})
+		return utils.BadRequest(c, "invalid user id")
 	}
 
 	var user models.User
 	if err := db.DB.First(&user, userID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+		return utils.NotFound(c, "user not found")
 	}
 
 	var gameCount int64
@@ -121,8 +162,8 @@ func (h *SocialHandler) GetProfile(c *fiber.Ctx) error {
 	db.DB.Model(&models.Review{}).Where("user_id = ?", userID).Count(&reviewCount)
 
 	return c.JSON(fiber.Map{
-		"user":         user,
-		"total_games":  gameCount,
+		"user":          user,
+		"total_games":   gameCount,
 		"total_reviews": reviewCount,
 	})
 }
@@ -134,25 +175,67 @@ func (h *SocialHandler) GetProfile(c *fiber.Ctx) error {
 // @Accept json
 // @Produce json
 // @Param user_id path string true "User UUID"
-// @Success 200 {array} models.Activity
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20, max 100)"
+// @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /social/activity/{user_id} [get]
 func (h *SocialHandler) GetUserActivity(c *fiber.Ctx) error {
-	userIDStr := c.Params("user_id")
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(c.Params("user_id"))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user id"})
+		return utils.BadRequest(c, "invalid user id")
 	}
+
+	page, pageSize := utils.ParsePagination(c)
+
+	var total int64
+	db.DB.Model(&models.Activity{}).Where("user_id = ?", userID).Count(&total)
 
 	var activities []models.Activity
 	if err := db.DB.Preload("User").
 		Where("user_id = ?", userID).
 		Order("created_at desc").
-		Limit(50).
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
 		Find(&activities).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch user activity"})
+		return utils.InternalError(c, "failed to fetch user activity")
 	}
 
-	return c.JSON(activities)
+	return c.JSON(fiber.Map{"data": activities, "meta": utils.NewPaginationMeta(int(total), page, pageSize)})
+}
+
+// SearchUsers godoc
+// @Summary Search Users
+// @Description Search users by username
+// @Tags social
+// @Accept json
+// @Produce json
+// @Param q query string true "Search query"
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20, max 100)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Router /users/search [get]
+func (h *SocialHandler) SearchUsers(c *fiber.Ctx) error {
+	query := c.Query("q", "")
+	if query == "" {
+		return utils.BadRequest(c, "search query 'q' is required")
+	}
+
+	page, pageSize := utils.ParsePagination(c)
+
+	var total int64
+	db.DB.Model(&models.User{}).Where("username ILIKE ?", "%"+query+"%").Count(&total)
+
+	var users []models.User
+	if err := db.DB.Select("id, username, avatar_url, bio, created_at").
+		Where("username ILIKE ?", "%"+query+"%").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&users).Error; err != nil {
+		return utils.InternalError(c, "failed to search users")
+	}
+
+	return c.JSON(fiber.Map{"data": users, "meta": utils.NewPaginationMeta(int(total), page, pageSize)})
 }

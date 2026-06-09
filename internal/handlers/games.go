@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/checkpoint/server/internal/utils"
 	"github.com/checkpoint/server/pkg/igdb"
 	"github.com/gofiber/fiber/v2"
 )
@@ -25,6 +26,8 @@ func NewGamesHandler(igdbClient *igdb.Client) *GamesHandler {
 // @Accept json
 // @Produce json
 // @Param q query string true "Search query"
+// @Param limit query int false "Limit (default 20)"
+// @Param offset query int false "Offset (default 0)"
 // @Success 200 {array} map[string]interface{}
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
@@ -32,10 +35,13 @@ func NewGamesHandler(igdbClient *igdb.Client) *GamesHandler {
 func (h *GamesHandler) Search(c *fiber.Ctx) error {
 	query := c.Query("q")
 	if query == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "search query 'q' is required"})
+		return utils.BadRequest(c, "search query 'q' is required")
 	}
 
-	igdbQuery := fmt.Sprintf(`search "%s"; fields id,name,cover.image_id,first_release_date,summary; limit 20;`, query)
+	limit := c.QueryInt("limit", 20)
+	offset := c.QueryInt("offset", 0)
+
+	igdbQuery := fmt.Sprintf(`search "%s"; fields id,name,cover.image_id,first_release_date,summary; limit %d; offset %d;`, query, limit, offset)
 	return h.fetchAndFormatGames(c, igdbQuery)
 }
 

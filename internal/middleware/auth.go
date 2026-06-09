@@ -12,18 +12,18 @@ func Protected(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		authHeader := c.Get("Authorization")
 		if authHeader == "" {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing authorization header"})
+			return utils.Unauthorized(c, "missing authorization header")
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid authorization header format"})
+			return utils.Unauthorized(c, "invalid authorization header format")
 		}
 
 		token := parts[1]
 		claims, err := utils.ParseJWT(token, cfg.JWTSecret)
 		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid or expired token"})
+			return utils.Unauthorized(c, "invalid or expired token")
 		}
 
 		c.Locals("user_id", claims.UserID)

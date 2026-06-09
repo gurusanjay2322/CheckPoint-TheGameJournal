@@ -45,8 +45,8 @@ type UserGame struct {
 
 type Review struct {
 	ID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	UserID          uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
-	GameID          uuid.UUID `gorm:"type:uuid;not null;index" json:"game_id"`
+	UserID          uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_user_game_review" json:"user_id"`
+	GameID          uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_user_game_review" json:"game_id"`
 	Rating          float32   `gorm:"check:rating >= 0 AND rating <= 5" json:"rating"` // 0-5 stars
 	Content         string    `json:"content"`
 	ContainsSpoiler bool      `gorm:"default:false" json:"contains_spoiler"`
