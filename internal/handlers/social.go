@@ -115,7 +115,7 @@ func (h *SocialHandler) GetFeed(c *fiber.Ctx) error {
 		followingIDs = append(followingIDs, f.FollowingID)
 	}
 
-	var activities []models.Activity
+	activities := []models.Activity{}
 	var total int64
 
 	if len(followingIDs) > 0 {
@@ -130,7 +130,49 @@ func (h *SocialHandler) GetFeed(c *fiber.Ctx) error {
 			Find(&activities)
 	}
 
+	attachActivityTargets(activities)
 	return c.JSON(fiber.Map{"data": activities, "meta": utils.NewPaginationMeta(int(total), page, pageSize)})
+}
+
+// attachActivityTargets loads each activity's game (and review, for review
+// activities) in two queries.
+func attachActivityTargets(activities []models.Activity) {
+	var reviewIDs, gameIDs []uuid.UUID
+	for _, a := range activities {
+		if a.TargetType == "review" {
+			reviewIDs = append(reviewIDs, a.TargetID)
+		} else {
+			gameIDs = append(gameIDs, a.TargetID)
+		}
+	}
+
+	reviews := map[uuid.UUID]models.Review{}
+	if len(reviewIDs) > 0 {
+		var rows []models.Review
+		db.DB.Preload("Game").Where("id IN ?", reviewIDs).Find(&rows)
+		for _, r := range rows {
+			reviews[r.ID] = r
+		}
+	}
+	games := map[uuid.UUID]models.Game{}
+	if len(gameIDs) > 0 {
+		var rows []models.Game
+		db.DB.Where("id IN ?", gameIDs).Find(&rows)
+		for _, g := range rows {
+			games[g.ID] = g
+		}
+	}
+
+	for i := range activities {
+		a := &activities[i]
+		if r, ok := reviews[a.TargetID]; ok && a.TargetType == "review" {
+			game := r.Game
+			a.Game = &game
+			a.Review = &models.ActivityReview{Rating: r.Rating, Content: r.Content, ContainsSpoiler: r.ContainsSpoiler}
+		} else if g, ok := games[a.TargetID]; ok {
+			a.Game = &g
+		}
+	}
 }
 
 // GetProfile godoc
@@ -202,6 +244,7 @@ func (h *SocialHandler) GetUserActivity(c *fiber.Ctx) error {
 		return utils.InternalError(c, "failed to fetch user activity")
 	}
 
+	attachActivityTargets(activities)
 	return c.JSON(fiber.Map{"data": activities, "meta": utils.NewPaginationMeta(int(total), page, pageSize)})
 }
 

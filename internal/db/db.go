@@ -19,6 +19,8 @@ func Init(cfg *config.Config) {
 	var err error
 	DB, err = gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
+		// Map unique violations to gorm.ErrDuplicatedKey.
+		TranslateError: true,
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)

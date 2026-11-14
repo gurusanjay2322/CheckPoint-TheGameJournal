@@ -43,13 +43,6 @@ definitions:
     - password
     - username
     type: object
-  handlers.SteamLoginRequest:
-    properties:
-      steam_id:
-        type: string
-    required:
-    - steam_id
-    type: object
   handlers.UpdateEmailRequest:
     properties:
       email:
@@ -191,6 +184,12 @@ paths:
             type: object
         "401":
           description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
           schema:
             additionalProperties:
               type: string
@@ -340,6 +339,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
@@ -349,89 +354,50 @@ paths:
       summary: Traditional Signup
       tags:
       - auth
-  /auth/steam:
-    post:
-      consumes:
-      - application/json
-      description: Authenticates or creates a user using their Steam ID and syncs
-        library
-      parameters:
-      - description: Steam Login Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.SteamLoginRequest'
-      produces:
-      - application/json
+  /auth/steam/callback:
+    get:
+      description: Called by Steam after sign-in. Verifies the assertion with Steam,
+        then logs in or links the account and redirects to APP_REDIRECT_URL.
       responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Login/Signup with Steam
+        "302":
+          description: Found
+      summary: Steam OpenID callback
       tags:
       - auth
   /auth/steam/link:
     post:
-      consumes:
-      - application/json
-      description: Link a steam account to an existing user and sync library
-      parameters:
-      - description: Steam Link Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.SteamLoginRequest'
+      description: Returns a Steam sign-in URL for the current user. Open it in a
+        browser; after sign-in, /auth/steam/callback links the account, starts a library
+        sync and redirects to APP_REDIRECT_URL with `linked=true` (or `error`).
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
             additionalProperties:
               type: string
             type: object
         "401":
           description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
       security:
       - BearerAuth: []
-      summary: Link Steam Account
+      summary: Start linking a Steam account
+      tags:
+      - auth
+  /auth/steam/login:
+    get:
+      description: Redirects the browser to Steam sign-in. After Steam authenticates
+        the user, /auth/steam/callback redirects to APP_REDIRECT_URL with `token`
+        (or `error`).
+      responses:
+        "302":
+          description: Found
+      summary: Login/Signup with Steam
       tags:
       - auth
   /games/{id}:

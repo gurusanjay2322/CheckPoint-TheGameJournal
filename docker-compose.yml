@@ -44,6 +44,8 @@ services:
       IGDB_CLIENT_ID: ${IGDB_CLIENT_ID}
       IGDB_SECRET: ${IGDB_SECRET}
       JWT_SECRET: ${JWT_SECRET}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      APP_REDIRECT_URL: ${APP_REDIRECT_URL:-checkpoint://auth}
 
   worker:
     build: .

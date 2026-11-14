@@ -11,7 +11,7 @@ We have scaffolded out the core backend using **Go (Fiber)**, backed by a **Post
 
 ### Authentication & Onboarding
 * **Email & Password:** Standard JWT-based authentication.
-* **Steam Login:** Users can sign up or log in instantly using their Steam account.
+* **Steam Login:** Users sign up or log in through Steam OpenID. The app opens `GET /api/v1/auth/steam/login` in a browser; after Steam verifies the user, the server redirects to `APP_REDIRECT_URL?token=<jwt>` (or `?error=<code>`). Logged-in users link Steam via `POST /api/v1/auth/steam/link`, which returns a sign-in `url` to open; success redirects to `APP_REDIRECT_URL?linked=true`.
 * **Library Sync:** Linking a Steam account triggers an asynchronous Redis background worker that pulls in the user's entire Steam library automatically.
 
 ### Game Discovery (Powered by IGDB)
@@ -44,7 +44,7 @@ The backend is fully documented using Swagger. When the server is running locall
 ##  Running the Server Locally
 
 1. Clone the repository and navigate to the `server` directory.
-2. Ensure you have a `.env` file populated with your `DATABASE_URL`, `REDIS_URL`, `STEAM_API_KEY`, and `IGDB` credentials.
+2. Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `REDIS_URL`, `STEAM_API_KEY`, the `IGDB` credentials, and a `JWT_SECRET` of at least 32 characters (the API refuses to start otherwise). Set `PUBLIC_URL` to the API's externally reachable URL so Steam can redirect back to it.
 3. Start the API server with hot-reloading:
    ```bash
    air

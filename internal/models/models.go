@@ -7,21 +7,21 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Email        *string    `gorm:"uniqueIndex" json:"email"`
-	PasswordHash *string    `json:"-"`
-	SteamID      *string    `gorm:"uniqueIndex" json:"steam_id"`
-	Username     string     `gorm:"not null" json:"username"`
-	AvatarURL    string     `json:"avatar_url"`
-	Bio          string     `json:"bio"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Email        *string   `gorm:"uniqueIndex" json:"email"`
+	PasswordHash *string   `json:"-"`
+	SteamID      *string   `gorm:"uniqueIndex" json:"steam_id"`
+	Username     string    `gorm:"not null" json:"username"`
+	AvatarURL    string    `json:"avatar_url"`
+	Bio          string    `json:"bio"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Game struct {
 	ID          uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	IGDBID      *int       `gorm:"uniqueIndex" json:"igdb_id"`
-	SteamAppID  int        `json:"steam_app_id"` // Used to map imported games
+	SteamAppID  *int       `gorm:"index" json:"steam_app_id"` // Used to map imported games
 	Title       string     `gorm:"not null" json:"title"`
 	CoverURL    string     `json:"cover_url"`
 	ReleaseDate *time.Time `json:"release_date"`
@@ -31,13 +31,18 @@ type Game struct {
 }
 
 type UserGame struct {
-	UserID          uuid.UUID  `gorm:"type:uuid;primaryKey" json:"user_id"`
-	GameID          uuid.UUID  `gorm:"type:uuid;primaryKey" json:"game_id"`
-	Status          string     `gorm:"not null;default:'backlog'" json:"status"` // playing, completed, backlog, dropped, wishlist
-	PlaytimeMinutes int        `gorm:"default:0" json:"playtime_minutes"`
-	LastPlayedAt    *time.Time `json:"last_played_at"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	UserID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	GameID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"game_id"`
+	Status          string    `gorm:"not null;default:'backlog'" json:"status"` // playing, completed, backlog, dropped, wishlist
+	PlaytimeMinutes int       `gorm:"default:0" json:"playtime_minutes"`
+	// Steam playtime over the last two weeks.
+	Playtime2WeeksMinutes int        `gorm:"column:playtime_2weeks_minutes;default:0" json:"playtime_2weeks_minutes"`
+	LastPlayedAt          *time.Time `json:"last_played_at"`
+	// Steam achievement counts; total is 0 when unknown or the game has none.
+	AchievementsUnlocked int       `gorm:"default:0" json:"achievements_unlocked"`
+	AchievementsTotal    int       `gorm:"default:0" json:"achievements_total"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 
 	User User `gorm:"foreignKey:UserID" json:"-"`
 	Game Game `gorm:"foreignKey:GameID" json:"game"`
@@ -75,4 +80,14 @@ type Activity struct {
 	CreatedAt  time.Time `json:"created_at"`
 
 	User User `gorm:"foreignKey:UserID" json:"user"`
+
+	// Filled in by handlers so feeds can render without a request per row.
+	Game   *Game           `gorm:"-" json:"game,omitempty"`
+	Review *ActivityReview `gorm:"-" json:"review,omitempty"`
+}
+
+type ActivityReview struct {
+	Rating          float32 `json:"rating"`
+	Content         string  `json:"content"`
+	ContainsSpoiler bool    `json:"contains_spoiler"`
 }

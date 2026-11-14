@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"log"
+
+	"github.com/checkpoint/server/internal/catalog"
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
 	"github.com/checkpoint/server/internal/utils"
@@ -8,7 +11,19 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+func enqueueIGDBEnrichment(client *asynq.Client, igdbID int) {
+	task, err := worker.NewEnrichIGDBGameTask(igdbID)
+	if err == nil {
+		_, err = client.Enqueue(task)
+	}
+	if err != nil {
+		log.Printf("Failed to enqueue IGDB enrichment for %d: %v", igdbID, err)
+	}
+}
 
 var validStatuses = map[string]bool{
 	"playing":   true,
@@ -16,6 +31,13 @@ var validStatuses = map[string]bool{
 	"backlog":   true,
 	"dropped":   true,
 	"wishlist":  true,
+}
+
+// game_id breaks ties so paging is stable.
+var librarySorts = map[string]string{
+	"updated":  "updated_at DESC, game_id",
+	"recent":   "last_played_at DESC NULLS LAST, updated_at DESC, game_id",
+	"playtime": "playtime_minutes DESC, game_id",
 }
 
 type LibraryHandler struct {
@@ -36,6 +58,7 @@ func NewLibraryHandler(asynqClient *asynq.Client) *LibraryHandler {
 // @Produce json
 // @Param user_id path string true "User UUID"
 // @Param status query string false "Filter by status (playing, completed, backlog, dropped, wishlist)"
+// @Param sort query string false "updated (default), recent (last played) or playtime"
 // @Param page query int false "Page number (default 1)"
 // @Param page_size query int false "Page size (default 20, max 100)"
 // @Success 200 {object} map[string]interface{}
@@ -63,8 +86,13 @@ func (h *LibraryHandler) GetUserLibrary(c *fiber.Ctx) error {
 	var total int64
 	query.Model(&models.UserGame{}).Count(&total)
 
+	order, ok := librarySorts[c.Query("sort", "updated")]
+	if !ok {
+		return utils.BadRequest(c, "invalid sort; must be one of: updated, recent, playtime")
+	}
+
 	var userGames []models.UserGame
-	if err := query.Offset((page-1)*pageSize).Limit(pageSize).Find(&userGames).Error; err != nil {
+	if err := query.Order(order).Offset((page - 1) * pageSize).Limit(pageSize).Find(&userGames).Error; err != nil {
 		return utils.InternalError(c, "failed to fetch library")
 	}
 
@@ -107,38 +135,36 @@ func (h *LibraryHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	var game models.Game
-	result := db.DB.Where("igdb_id = ?", req.IGDBID).First(&game)
-	if result.Error != nil {
-		game = models.Game{
-			IGDBID: &req.IGDBID,
-			Title:  req.GameTitle,
-		}
-		if err := db.DB.Create(&game).Error; err != nil {
-			return utils.InternalError(c, "failed to create local game record")
+	var created bool
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		game, created, err = catalog.FindOrCreateByIGDB(tx, req.IGDBID, req.GameTitle)
+		if err != nil {
+			return err
 		}
 
-		if task, err := worker.NewEnrichIGDBGameTask(req.IGDBID); err == nil {
-			h.asynqClient.Enqueue(task)
+		entry := models.UserGame{UserID: userID, GameID: game.ID, Status: req.Status}
+		if err := tx.Omit("User", "Game").Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "game_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at"}),
+		}).Create(&entry).Error; err != nil {
+			return err
 		}
-	}
 
-	var userGame models.UserGame
-	db.DB.Where("user_id = ? AND game_id = ?", userID, game.ID).FirstOrCreate(&userGame, models.UserGame{
-		UserID: userID,
-		GameID: game.ID,
-		Status: req.Status,
+		return tx.Omit("User").Create(&models.Activity{
+			UserID:     userID,
+			ActionType: "status_" + req.Status,
+			TargetID:   game.ID,
+			TargetType: "game",
+		}).Error
 	})
-
-	userGame.Status = req.Status
-	db.DB.Save(&userGame)
-
-	activity := models.Activity{
-		UserID:     userID,
-		ActionType: "status_" + req.Status,
-		TargetID:   game.ID,
-		TargetType: "game",
+	if err != nil {
+		return utils.InternalError(c, "failed to update library")
 	}
-	db.DB.Create(&activity)
+
+	if created {
+		enqueueIGDBEnrichment(h.asynqClient, req.IGDBID)
+	}
 
 	return c.JSON(fiber.Map{"message": "library updated", "game": game, "status": req.Status})
 }

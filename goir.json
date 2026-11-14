@@ -1,0 +1,6 @@
+{
+  "output": "dev",
+  "buildArgs": ["./cmd/dev"],
+  "excludedPaths": ["tmp"],
+  "tmp_dir": "tmp"
+}

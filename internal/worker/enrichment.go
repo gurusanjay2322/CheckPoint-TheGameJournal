@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"time"
-	"unicode"
 
+	"github.com/checkpoint/server/internal/catalog"
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
 	"github.com/checkpoint/server/pkg/igdb"
 	"github.com/hibiken/asynq"
+	"gorm.io/gorm"
 )
 
 const (
@@ -37,6 +37,24 @@ func NewEnrichIGDBGameTask(igdbID int) (*asynq.Task, error) {
 	return asynq.NewTask(TypeEnrichIGDBGame, payload), nil
 }
 
+// applyMetadata copies IGDB details onto a local game. The title is only
+// replaced when overwriteTitle is set, because Steam titles are already clean.
+func applyMetadata(g *models.Game, src *igdb.IGDBGame, overwriteTitle bool) {
+	if overwriteTitle && src.Name != "" {
+		g.Title = src.Name
+	}
+	if src.Summary != "" {
+		g.Summary = src.Summary
+	}
+	if src.FirstReleaseDate > 0 {
+		t := time.Unix(src.FirstReleaseDate, 0).UTC()
+		g.ReleaseDate = &t
+	}
+	if cover := src.CoverURL(); cover != "" {
+		g.CoverURL = cover
+	}
+}
+
 func HandleEnrichSteamGamesTask(igdbClient *igdb.Client) func(context.Context, *asynq.Task) error {
 	return func(ctx context.Context, t *asynq.Task) error {
 		log.Println("Starting background enrichment for Steam games...")
@@ -54,21 +72,16 @@ func HandleEnrichSteamGamesTask(igdbClient *igdb.Client) func(context.Context, *
 
 		log.Printf("Found %d games to enrich. Processing in chunks...", len(games))
 
-		// Process in chunks of 50
 		chunkSize := 50
 		for i := 0; i < len(games); i += chunkSize {
-			end := i + chunkSize
-			if end > len(games) {
-				end = len(games)
-			}
-
+			end := min(i+chunkSize, len(games))
 			chunk := games[i:end]
-			var steamIDs []int
-			gameMap := make(map[int]*models.Game)
 
+			steamIDs := make([]int, len(chunk))
+			gameMap := make(map[int]*models.Game, len(chunk))
 			for j := range chunk {
-				steamIDs = append(steamIDs, chunk[j].SteamAppID)
-				gameMap[chunk[j].SteamAppID] = &chunk[j]
+				steamIDs[j] = *chunk[j].SteamAppID
+				gameMap[*chunk[j].SteamAppID] = &chunk[j]
 			}
 
 			igdbGames, err := igdbClient.GetGamesBySteamIDs(steamIDs)
@@ -77,48 +90,31 @@ func HandleEnrichSteamGamesTask(igdbClient *igdb.Client) func(context.Context, *
 				continue
 			}
 
-			for _, igdbGame := range igdbGames {
-				// We can't rely on ext.Category == 1 because IGDB's API is missing category data for many games.
-				// Instead, we check if the UID matches AND the titles are somewhat similar to avoid collisions.
-				var matchedSteamID int
+			for k := range igdbGames {
+				igdbGame := &igdbGames[k]
+
+				// IGDB's category data is incomplete, so match on UID and
+				// confirm with the title to avoid cross-platform UID collisions.
+				var localGame *models.Game
 				for _, ext := range igdbGame.ExternalGames {
 					parsedID, err := strconv.Atoi(ext.UID)
 					if err != nil {
 						continue
 					}
-
-					localGame, exists := gameMap[parsedID]
-					if exists {
-						// Disambiguate collisions (e.g. UID "730" on Twitch vs Steam) by checking if titles are reasonably similar
-						igdbTitle := normalizeTitle(igdbGame.Name)
-						localTitle := normalizeTitle(localGame.Title)
-
-						if strings.Contains(igdbTitle, localTitle) || strings.Contains(localTitle, igdbTitle) || igdbTitle == localTitle {
-							matchedSteamID = parsedID
-							break
-						}
+					if candidate, ok := gameMap[parsedID]; ok && catalog.TitlesMatch(igdbGame.Name, candidate.Title) {
+						localGame = candidate
+						break
 					}
 				}
-
-				if matchedSteamID == 0 {
+				if localGame == nil || localGame.IGDBID != nil {
 					continue
 				}
 
-				// Update the local game record
-				if localGame, exists := gameMap[matchedSteamID]; exists {
-					localGame.IGDBID = &igdbGame.ID
-					localGame.Summary = igdbGame.Summary
-
-					if igdbGame.FirstReleaseDate > 0 {
-						t := time.Unix(igdbGame.FirstReleaseDate, 0)
-						localGame.ReleaseDate = &t
-					}
-
-					if igdbGame.Cover.ImageID != "" {
-						localGame.CoverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", igdbGame.Cover.ImageID)
-					}
-
-					db.DB.Save(localGame)
+				err := catalog.LinkSteamGameToIGDB(db.DB, localGame, igdbGame.ID, func(g *models.Game) {
+					applyMetadata(g, igdbGame, false)
+				})
+				if err != nil {
+					log.Printf("Failed to link steam app %d to IGDB %d: %v", *localGame.SteamAppID, igdbGame.ID, err)
 				}
 			}
 
@@ -144,59 +140,51 @@ func HandleEnrichIGDBGameTask(igdbClient *igdb.Client) func(context.Context, *as
 			return fmt.Errorf("local game not found for IGDB ID %d: %v", p.IGDBID, err)
 		}
 
-		igdbQuery := fmt.Sprintf(`fields id,name,cover.image_id,first_release_date,summary; where id = %d; limit 1;`, p.IGDBID)
-		respBytes, err := igdbClient.PostRequest("games", igdbQuery)
+		igdbGame, err := igdbClient.GetGame(p.IGDBID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch game %d from IGDB: %v", p.IGDBID, err)
 		}
-
-		var results []map[string]interface{}
-		if err := json.Unmarshal(respBytes, &results); err != nil {
-			return fmt.Errorf("failed to parse IGDB response for %d: %v", p.IGDBID, err)
-		}
-
-		if len(results) == 0 {
+		if igdbGame == nil {
 			log.Printf("IGDB returned no results for game ID: %d", p.IGDBID)
 			return nil // The ID might be invalid, don't retry
 		}
 
-		gameData := results[0]
-
 		// Overwrite the user-provided title with the official IGDB title
-		if name, ok := gameData["name"].(string); ok {
-			localGame.Title = name
-		}
+		applyMetadata(&localGame, igdbGame, true)
 
-		if summary, ok := gameData["summary"].(string); ok {
-			localGame.Summary = summary
-		}
-
-		if frd, ok := gameData["first_release_date"].(float64); ok {
-			t := time.Unix(int64(frd), 0)
-			localGame.ReleaseDate = &t
-		}
-
-		if coverObj, ok := gameData["cover"].(map[string]interface{}); ok {
-			if imageID, exists := coverObj["image_id"].(string); exists {
-				localGame.CoverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", imageID)
+		var steamAppIDs []int
+		for _, ext := range igdbGame.ExternalGames {
+			if id, err := strconv.Atoi(ext.UID); err == nil {
+				steamAppIDs = append(steamAppIDs, id)
 			}
 		}
 
-		if err := db.DB.Save(&localGame).Error; err != nil {
+		err = db.DB.Transaction(func(tx *gorm.DB) error {
+			if len(steamAppIDs) > 0 {
+				var steamOnly []models.Game
+				if err := tx.Where("steam_app_id IN ? AND igdb_id IS NULL", steamAppIDs).Find(&steamOnly).Error; err != nil {
+					return err
+				}
+				for _, dup := range steamOnly {
+					if !catalog.TitlesMatch(igdbGame.Name, dup.Title) {
+						continue
+					}
+					log.Printf("Merging steam app %d into IGDB game %d", *dup.SteamAppID, p.IGDBID)
+					if localGame.SteamAppID == nil {
+						localGame.SteamAppID = dup.SteamAppID
+					}
+					if err := catalog.Merge(tx, localGame.ID, dup.ID); err != nil {
+						return err
+					}
+				}
+			}
+			return tx.Save(&localGame).Error
+		})
+		if err != nil {
 			return fmt.Errorf("failed to save enriched local game %d: %v", p.IGDBID, err)
 		}
 
 		log.Printf("Successfully enriched and overwritten local game: %s (IGDB ID: %d)", localGame.Title, p.IGDBID)
 		return nil
 	}
-}
-
-func normalizeTitle(s string) string {
-	var sb strings.Builder
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			sb.WriteRune(unicode.ToLower(r))
-		}
-	}
-	return sb.String()
 }

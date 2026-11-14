@@ -1,14 +1,19 @@
 package handlers
 
 import (
+	"errors"
+
+	"github.com/checkpoint/server/internal/catalog"
 	"github.com/checkpoint/server/internal/db"
 	"github.com/checkpoint/server/internal/models"
 	"github.com/checkpoint/server/internal/utils"
-	"github.com/checkpoint/server/internal/worker"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"gorm.io/gorm"
 )
+
+var errAlreadyReviewed = errors.New("already reviewed")
 
 type ReviewsHandler struct {
 	asynqClient *asynq.Client
@@ -21,11 +26,11 @@ func NewReviewsHandler(asynqClient *asynq.Client) *ReviewsHandler {
 }
 
 type CreateReviewRequest struct {
-	IGDBID          int    `json:"igdb_id" validate:"required"`
-	GameTitle       string `json:"game_title"`
+	IGDBID          int     `json:"igdb_id" validate:"required"`
+	GameTitle       string  `json:"game_title"`
 	Rating          float32 `json:"rating" validate:"gte=0,lte=5"`
-	Content         string `json:"content"`
-	ContainsSpoiler bool   `json:"contains_spoiler"`
+	Content         string  `json:"content"`
+	ContainsSpoiler bool    `json:"contains_spoiler"`
 }
 
 // CreateReview godoc
@@ -54,41 +59,54 @@ func (h *ReviewsHandler) CreateReview(c *fiber.Ctx) error {
 		return err
 	}
 
-	var game models.Game
-	result := db.DB.Where("igdb_id = ?", req.IGDBID).First(&game)
-	if result.Error != nil {
-		game = models.Game{
-			IGDBID: &req.IGDBID,
-			Title:  req.GameTitle,
+	var review models.Review
+	var created bool
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		game, gameCreated, err := catalog.FindOrCreateByIGDB(tx, req.IGDBID, req.GameTitle)
+		if err != nil {
+			return err
 		}
-		if err := db.DB.Create(&game).Error; err != nil {
-			return utils.InternalError(c, "failed to create game record")
+		created = gameCreated
+
+		var existing int64
+		if err := tx.Model(&models.Review{}).Where("user_id = ? AND game_id = ?", userID, game.ID).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return errAlreadyReviewed
 		}
 
-		if task, err := worker.NewEnrichIGDBGameTask(req.IGDBID); err == nil {
-			h.asynqClient.Enqueue(task)
+		review = models.Review{
+			UserID:          userID,
+			GameID:          game.ID,
+			Rating:          req.Rating,
+			Content:         req.Content,
+			ContainsSpoiler: req.ContainsSpoiler,
 		}
-	}
+		if err := tx.Omit("User", "Game").Create(&review).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return errAlreadyReviewed
+			}
+			return err
+		}
 
-	review := models.Review{
-		UserID:          userID,
-		GameID:          game.ID,
-		Rating:          req.Rating,
-		Content:         req.Content,
-		ContainsSpoiler: req.ContainsSpoiler,
-	}
-
-	if err := db.DB.Create(&review).Error; err != nil {
+		return tx.Omit("User").Create(&models.Activity{
+			UserID:     userID,
+			ActionType: "reviewed",
+			TargetID:   review.ID,
+			TargetType: "review",
+		}).Error
+	})
+	if errors.Is(err, errAlreadyReviewed) {
 		return utils.Conflict(c, "you have already reviewed this game")
 	}
-
-	activity := models.Activity{
-		UserID:     userID,
-		ActionType: "reviewed",
-		TargetID:   review.ID,
-		TargetType: "review",
+	if err != nil {
+		return utils.InternalError(c, "failed to create review")
 	}
-	db.DB.Create(&activity)
+
+	if created {
+		enqueueIGDBEnrichment(h.asynqClient, req.IGDBID)
+	}
 
 	db.DB.Preload("User").Preload("Game").First(&review, review.ID)
 

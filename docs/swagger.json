@@ -64,6 +64,15 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -284,6 +293,15 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -296,64 +314,16 @@
                 }
             }
         },
-        "/auth/steam": {
-            "post": {
-                "description": "Authenticates or creates a user using their Steam ID and syncs library",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+        "/auth/steam/callback": {
+            "get": {
+                "description": "Called by Steam after sign-in. Verifies the assertion with Steam, then logs in or links the account and redirects to APP_REDIRECT_URL.",
                 "tags": [
                     "auth"
                 ],
-                "summary": "Login/Signup with Steam",
-                "parameters": [
-                    {
-                        "description": "Steam Login Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.SteamLoginRequest"
-                        }
-                    }
-                ],
+                "summary": "Steam OpenID callback",
                 "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
+                    "302": {
+                        "description": "Found"
                     }
                 }
             }
@@ -365,38 +335,17 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Link a steam account to an existing user and sync library",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Returns a Steam sign-in URL for the current user. Open it in a browser; after sign-in, /auth/steam/callback links the account, starts a library sync and redirects to APP_REDIRECT_URL with `linked=true` (or `error`).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "auth"
                 ],
-                "summary": "Link Steam Account",
-                "parameters": [
-                    {
-                        "description": "Steam Link Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.SteamLoginRequest"
-                        }
-                    }
-                ],
+                "summary": "Start linking a Steam account",
                 "responses": {
                     "200": {
                         "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -412,15 +361,20 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
+                    }
+                }
+            }
+        },
+        "/auth/steam/login": {
+            "get": {
+                "description": "Redirects the browser to Steam sign-in. After Steam authenticates the user, /auth/steam/callback redirects to APP_REDIRECT_URL with `token` (or `error`).",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login/Signup with Steam",
+                "responses": {
+                    "302": {
+                        "description": "Found"
                     }
                 }
             }
@@ -1629,17 +1583,6 @@
                     "type": "string",
                     "maxLength": 50,
                     "minLength": 2
-                }
-            }
-        },
-        "handlers.SteamLoginRequest": {
-            "type": "object",
-            "required": [
-                "steam_id"
-            ],
-            "properties": {
-                "steam_id": {
-                    "type": "string"
                 }
             }
         },
